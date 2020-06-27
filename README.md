@@ -25,4 +25,4 @@ The main goal of this project is not only making good prediction accuracy on pas
 
 **Attention!:** When you try to run the R file, please download the csv file "train.csv" and "test" for data import. When you try to run the Python jupyter notebook, please download the CSV files "train_clean.csv" and "test_clean.csv", and folder "rmltk"!
 
-### **We believe our project worth a A++, but we are satisfied with A :D We would like to say thank you Dr. Hall, and thank you for your knowledge, your beautfil wife, and the cutiest baby! (  •̆ ᵕ •̆ )◞♡**
+### **We believe our project worth an A++, but we are satisfied with A :D We would like to say thank you Dr. Hall, and thank you for your knowledge, your beautfil wife, and the cutiest baby! (  •̆ ᵕ •̆ )◞♡**
