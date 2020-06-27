@@ -1,0 +1,454 @@
+---
+title: "Group 9 -\tTitanic: Machine Learning from Disaster: Logistic Regress, Random
+  Forest Classification Tree and XGBoost Model"
+author: "Tian Tian, Xiang Fan, Sean Fan"
+date: "6/26/2020"
+output:
+  pdf_document: default
+  html_document: default
+---
+#set the directory of data folder
+```{r}
+setwd("C:/Users/yuxia/OneDrive/Desktop/Kaggle")
+```
+
+
+#input datasets and take a look at the metadata & schema
+```{r}
+train = read.csv("train.csv",stringsAsFactors=FALSE)
+summary(train)
+head(train,10)
+```
+
+
+#Making basic visualizations for data questions investigation.
+```{r}
+par(mfrow=c(1,1))
+plot(density(train$Age,na.rm=TRUE))
+plot(density(train$Fare,na.rm=TRUE))
+```
+
+
+#Survival Rate by Sex Barplot
+```{r}
+counts <- table(train$Survived, train$Sex)
+barplot(counts, xlab = "Gender", ylab = "Number of People", main = "survived and deceased between male and female")
+counts[2] / (counts[1] + counts[2])
+counts[4] / (counts[3] + counts[4])
+
+#74.2% of women survived versus 18.9% of men.
+```
+
+
+#Survival Rate by Passenger Class Barplot
+```{r}
+Pclass_survival <- table(train$Survived, train$Pclass)
+barplot(Pclass_survival, xlab="Cabin Class", ylab = "Number of People", main = "survived and deceased between male and female", legend = rownames(Pclass_survival),args.legend = c(x=0.5, y=500)) #args.legend -> coordinate position
+
+Pclass_survival[2] / (Pclass_survival[1]+Pclass_survival[2])
+Pclass_survival[4] / (Pclass_survival[3]+Pclass_survival[4])
+Pclass_survival[6] / (Pclass_survival[5]+Pclass_survival[6])
+#It seems like the Pclass column might also be informative in survival prediction as the survival rate of the 1st class, 2nd class, and 3rd class are: 63.0%, 47.3%, and 24.2% respectively.
+```
+
+
+#Some variables have many 'missing' values, like Age, so we will remove these variable that we do not use for the Model:PassengerID, Ticket, Fare, Cabin, and Embarked.
+```{r}
+train = train[-c(1, 9, 11, 12)]
+```
+
+
+#Replacing Gender variable (Male/Female) with a Dummy Variable (0/1). Additionally, we need to replace qualitative variables (such as gender) into quantitative variables (0 for male, 1 for female etc) in order to fit our model.
+```{r}
+train$Sex = gsub('female', 1, train$Sex)
+train$Sex = gsub('male', 0, train$Sex)
+```
+
+
+#Making Inferences on Misiing Age Values: We assuming that Mrs. will be comparetively older than Ms.; so we will group people with the same titles in closer age.
+#We also replace the name by her/his prefix ti allows for standardization
+```{r}
+i_mr = grep("Mr.", train$Name, fixed = TRUE)
+i_mrs = grep("Mrs.", train$Name, fixed = TRUE)
+i_miss = grep("Miss.", train$Name, fixed = TRUE)
+i_master = grep("Master.", train$Name, fixed = TRUE)
+
+for(i in i_mr){
+  train$Title[i] = "Mr"
+}
+for(i in i_mrs){
+  train$Title[i] = "Mrs"
+}
+for(i in i_miss){
+  train$Title[i] = "Miss"
+}
+for(i in i_master){
+  train$Title[i] = "Master"
+}
+```
+
+
+#Making Inference on Missing Age Values: Inputting Title-group averages; We replace the missing ages with their respective title-group average. This means that if we have a missing age entry for a man named Mr. Bond, we substitute his age for the average age for all passenger with the title Mr. Similarly for Master, Miss, Mrs, and Dr. We then write a for loop that goes through the entire Train data set and checks if the age value is missing. If it is, we assign it according to the surname of the observation. This code snippet is a bit complicated.
+```{r}
+mr_age = round(mean(train$Age[train$Title=="Mr"], na.rm=TRUE), digits=2)
+mrs_age = round(mean(train$Age[train$Title=="Mrs"], na.rm=TRUE), digits=2)
+miss_age = round(mean(train$Age[train$Title=="Miss"], na.rm=TRUE), digits=2)
+master_age = round(mean(train$Age[train$Title=="Master"], na.rm=TRUE), digits=2)
+
+
+for (i in 1:nrow(train)){
+  if (is.na(train[i, 5])){
+    if (train$Title[i]=="Mr"){
+      train$Age[i] = mr_age
+    }
+    else if (train$Title[i]=="Mrs"){
+      train$Age[i] = mrs_age
+    }
+    else if (train$Title[i]=="Miss"){
+      train$Age[i] = miss_age
+    }
+    else if (train$Title[i]=="Master"){
+      train$Age[i] = master_age
+    }
+    else {
+      print("Uncaught Title")
+    }
+  }
+}
+```
+
+
+#Same process for erase missing values in `Fare` as we filled the missing value in column `Age`.
+```{r}
+first_class_fare = round(mean(train$Fare[train$Pclass == 1],na.rm = TRUE), digits = 2)
+second_class_fare = round(mean(train$Fare[train$Pclass == 2],na.rm = TRUE), digits = 2)
+thrid_class_fare = round(mean(train$Fare[train$Pclass == 3],na.rm = TRUE),digits = 2)
+
+for (i in 1:nrow(train)){
+  if(is.na(train[i,8])){
+    if(train$Pclass[i] == 1){
+      train$Fare[i] = first_class_fare
+    }else if(train$Pclass[i] == 2){
+      train$Fare[i] = second_class_fare
+    }else if(train$Pclass[i] == 3){
+      train$Fare[i] = thrid_class_fare
+    }else{
+      print("Unknown Fare")
+    }
+  }
+}
+```
+
+
+#Creating New Variables to Strengthen Our Model
+#By creating new variables we may be able to predict the survival of the passengers even more closely. This part of the walkthrough specifically includes three variables which we found to help our model.
+
+
+#vairable 1: child
+#We create a column title "Child", and value "1" as passenger under the age of 12 and "2" otherwise.
+```{r}
+train$Child <- NA
+for (i in 1:nrow(train)){
+  if (train$Age[i] <= 12) {
+    train$Child[i] = 1
+  }
+  else {
+    train$Child[i] = 0
+  }
+}
+```
+
+
+#variable 2: Family
+#We create a column title "Family" which count the total number of family size for each apssenger by summing up Sibiling/Spouses and Parents/Children, +1 means plus the passenger herself/himself.
+```{r}
+train$Family = NA
+for (i in 1:nrow(train)) {
+  x = train$SibSp[i]
+  y = train$Parch[i]
+  train$Family[i] = x+y+1
+}
+```
+
+
+#variable 3: Mother
+#We create a column to title the passenger if she is a mother or not, we will use "if" to decided whether the passenger is married and have "Parch" greater than 1. Mother = 1 means passenger is a mother, vice versa.
+```{r}
+train$Mother = NA
+for (i in 1:nrow(train)){
+  if (train$Title[i] == "Mrs" & train$Parch[i] > 0){
+    train$Mother[i] = 1
+  }
+  else {
+    train$Mother[i] = 0
+  }
+}
+```
+
+
+
+Clean the Test dataset
+#We need to repeat all steps we have done on Train dataset to Test dataset so we can have the same state, the only difference between two datasets are the column amount. We need to becareful when we use the index of column.
+```{r}
+test = read.csv("test.csv", stringsAsFactors=FALSE)
+test_cp = test
+PassengerID = test_cp$PassengerId
+head(test,10)
+```
+
+
+#Remove useless input variables.
+```{r}
+test = test[-c(1, 8,10,11)]
+ 
+test$Sex = gsub("female", 1, test$Sex)
+test$Sex = gsub("male", 0, test$Sex)
+```
+
+
+#Replace passenger's name with prefix.
+```{r}
+itest_master = grep("Master.",test$Name, fixed = TRUE)
+itest_miss = grep("Miss.", test$Name, fixed = TRUE)
+itest_mrs = grep("Mrs.", test$Name, fixed = TRUE)
+itest_mr = grep("Mr.", test$Name, fixed = TRUE)
+itest_dr = grep("Dr.", test$Name, fixed = TRUE)
+
+for(i in itest_master) {
+  test$Title[i] = "Master"
+}
+for(i in itest_miss) {
+  test$Title[i] = "Miss"
+}
+for(i in itest_mrs) {
+  test$Title[i] = "Mrs"
+}
+for(i in itest_mr) {
+  test$Title[i] = "Mr"
+}
+for(i in itest_dr) {
+  test$Title[i] = "Dr"
+}
+```
+
+
+#Fill `Age`'s missing value with group average ages.
+```{r}
+test_master_age = round(mean(test$Age[test$Title == "Master"], na.rm = TRUE), digits = 2)
+test_miss_age = round(mean(test$Age[test$Title == "Miss"], na.rm = TRUE), digits =2)
+test_mrs_age = round(mean(test$Age[test$Title == "Mrs"], na.rm = TRUE), digits = 2)
+test_mr_age = round(mean(test$Age[test$Title == "Mr"], na.rm = TRUE), digits = 2)
+test_dr_age = round(mean(test$Age[test$Title == "Dr"], na.rm = TRUE), digits = 2)
+
+for (i in 1:nrow(test)) {
+  if (is.na(test$Age[i]) & !is.na(test$Title[i])) {
+    if (test$Title[i] == "Master") {
+      test$Age[i] = test_master_age
+    } else if (test$Title[i] == "Miss") {
+      test$Age[i] = test_miss_age
+    } else if (test$Title[i] == "Mrs") {
+      test$Age[i] = test_mrs_age
+    } else if (test$Title[i] == "Mr") {
+      test$Age[i] = test_mr_age
+    } else {
+      next()
+    }
+  }
+}
+```
+
+
+#Manually check if there is still NA
+```{r}
+test[is.na(test$Age),]
+```
+
+
+#Manually fill the missing information
+```{r}
+test$Title[89] = "Ms"
+test$Age[89] = test_miss_age
+```
+
+
+#New variable 1:Child
+```{r}
+test["Child"] = NA
+ 
+for (i in 1:nrow(test)) {
+  if (test$Age[i] <= 12) {
+    test$Child[i] = 1
+  } else {
+    test$Child[i] = 0
+  }
+}
+```
+
+
+#New variable 2:Family
+```{r}
+test["Family"] = NA
+ 
+for(i in 1:nrow(test)) {
+  test$Family[i] = test$SibSp[i] + test$Parch[i] + 1
+}
+```
+
+
+#New variable 3:Mother
+```{r}
+test["Mother"] = NA
+
+for (i in 1:nrow(test)) {
+  if (!is.na(test$Title[i]) & test$Title[i] == "Mrs" & test$Parch[i] > 0) {
+    test$Mother[i] = 1
+  } else {
+    test$Mother[i] = 0
+  }
+}
+```
+
+
+#Take a look at the manipulated Test dataset
+```{r}
+head(test)
+```
+
+
+#Output cleaned Train and Test datasets for future use.
+```{r}
+# write.csv(train, file = "train_clean.csv", row.names = FALSE)
+# write.csv(test, file = "test_clean.csv", row.names = FALSE)
+```
+
+
+
+GLM
+#train a simple Logistic Regression in GLM model
+```{r}
+glm.fit <- glm(Survived ~ Pclass + Sex + Age + Child + Sex*Pclass + Family + Mother, family = binomial, data = train)
+```
+```{r}
+summary(glm.fit)
+```
+```{r}
+nrow(test)
+```
+
+
+#Make prediction based on the Test dataset without known result; Purpose: Kaggle Compete
+```{r}
+glm.probs=predict(glm.fit,test,type="response")
+glm.pred=rep(0,418)
+glm.pred[glm.probs>0.5]=1
+```
+
+
+#Output submission csv file
+```{r}
+kaggle.sub1 <- cbind(PassengerID, glm.pred)
+colnames(kaggle.sub1) <- c("PassengerId", "Survived")
+write.csv(kaggle.sub1, file = "submission1.csv", row.names=FALSE)
+```
+
+
+
+Random Forest
+#Training a classification tree
+```{r}
+#install.packages("randomForest")
+#install.packages("gbm")
+library(randomForest)
+library(gbm)
+library(MASS)
+library(caret)
+```
+```{r}
+library(rpart)
+class.tree = rpart(formula=train$Survived~Pclass + Sex + Age + Child +SibSp +Parch + Family + Mother, data=train, method="class")
+```
+
+```{r}
+printcp(class.tree)#Find out how the tree performs
+```
+
+
+##Classification Tree Prunning
+```{r}
+class.ptree<- prune(class.tree,
+        cp=class.tree$cptable[which.min(class.tree$cptable[,"xerror"]),"CP"])# select the one having the least cross-validated error and use it to prune the tree.
+```
+
+
+#Making prediction based on the result-unknown Test dataset
+```{r}
+#Accuracy on Training Set
+class.ptree_probs = predict(class.ptree,test,type="vector")
+class.ptree_pred=rep(0,418)
+class.ptree_pred[class.ptree_probs>1]=1
+```
+
+
+#Output submission CSV file
+```{r}
+kaggle.sub_classficationtree <- cbind(PassengerID, class.ptree_pred)
+colnames(kaggle.sub_classficationtree) <- c("PassengerId", "Survived")
+write.csv(kaggle.sub_classficationtree, file = "submission2.csv", row.names=FALSE)
+```
+
+
+
+XGBoost
+#DATA MATRIX: set Survived column with all initialized with 0 for XGBoost successful prediction.
+```{r}
+test["Survived"]=0
+```
+
+```{r}
+x.train <- model.matrix(Survived ~ Pclass + Sex + Age + Child +SibSp +Parch + Family + Mother,train) 
+y.train <- train$Survived 
+x.test <- model.matrix(Survived ~Pclass + Sex + Age + Child +SibSp +Parch + Family + Mother,test) 
+y.test <- test$Survived
+```
+
+```{r}
+library(xgboost)
+# Transform the two data sets into xgb.Matrix
+xgb.train <- xgb.DMatrix(data=x.train,label=y.train)
+xgb.test <- xgb.DMatrix(data=x.test,label=y.test)
+```
+
+```{r}
+params <- list(booster = "gbtree", objective = "binary:logistic", eta=0.3, gamma=0, max_depth=6,min_child_weight=1, subsample=1, colsample_bytree=1)
+```
+
+
+#Using Cross-Validation to calculate the best nround for this model.
+```{r}
+set.seed(1)
+xgbcv <- xgb.cv(params = params, data = xgb.train,nrounds = 200, nfold = 5, showsd = T, stratified = T,  print_every_n = 10, early_stopping_rounds = 20, maximize = F)
+```
+
+
+#Training XGBoost model with nround = 9 and our Train dataset
+```{r}
+#We get best iteration =9. The model returns lowest validation error at the 9th (nround) iteration.
+xgb1 <- xgb.train (params = params, data = xgb.train, nrounds =9, print_every_n = 10,  maximize = F , eval_metric = "error")
+```
+
+
+#Making prediction based on our Test data for accuracy
+```{r}
+xgb_probs = predict(xgb1,xgb.test)
+xgb_pred=rep(0,418)
+xgb_pred[xgb_probs>0.5]=1
+```
+
+
+#Output the prediction as submission CSV file for Kaggle Compete.
+```{r}
+kaggle.sub_xgb <- cbind(PassengerID, xgb_pred)
+colnames(kaggle.sub_xgb) <- c("PassengerId", "Survived")
+write.csv(kaggle.sub_xgb, file = "submission3.csv", row.names=FALSE)
+```
+
