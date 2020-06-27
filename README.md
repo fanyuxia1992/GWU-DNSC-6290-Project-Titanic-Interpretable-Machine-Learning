@@ -20,5 +20,6 @@ This project constructed with multiple machine learning algorithms learnt from G
  - XGBoost -- R
  - Elastic Net GLM -- Python + h2o
  - Monotonic GBM - Python + h2o
+
 The main goal of this project is not only making good prediction accuracy on passenger survival possibility of Titanic shipwreck disaster, but also be avaiable to reveal the decision making process and casuality, interpret to both non-technical consumer and highly-skilled data scientist, avoiding disparate treatment and disparate impact, and debugging other problems hidding in the machine learning procedure. 
 
